@@ -17,12 +17,19 @@ Contributors:
 **********************************************************************/
 package org.datanucleus.store.mongodb;
 
+import com.mongodb.ConnectionString;
 import com.mongodb.MongoClient;
 import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoClientURI;
 import com.mongodb.MongoCredential;
 import com.mongodb.ServerAddress;
-import com.mongodb.DB;
+import com.mongodb.DBObjectCodecProvider;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.ReadPreference;
+import com.mongodb.WriteConcern;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.geojson.Point;
+import com.mongodb.client.model.geojson.codecs.GeoJsonCodecProvider;
 import org.datanucleus.ExecutionContext;
 import org.datanucleus.PropertyNames;
 import org.datanucleus.exceptions.NucleusException;
@@ -42,6 +49,11 @@ import javax.transaction.xa.Xid;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.bson.codecs.BsonValueCodecProvider;
+import org.bson.codecs.ValueCodecProvider;
+import org.bson.codecs.configuration.CodecRegistries;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
 
 /**
  * Implementation of a ConnectionFactory for MongoDB.
@@ -75,11 +87,13 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
     public static final String MONGODB_SSL_INVALID_HOSTNAME_ALLOWED = "datanucleus.mongodb.sslInvalidHostnameAllowed";
 
     public static final String MONGODB_CONNECTIONS_PER_HOST = "datanucleus.mongodb.connectionsPerHost";
+    //public static final String MONGODB_THREAD_BLOCK_FOR_MULTIPLIER = "datanucleus.mongodb.threadsAllowedToBlockForConnectionMultiplier";
     public static final String MONGODB_REPLICA_SET_NAME = "datanucleus.mongodb.replicaSetName";
 
     String dbName = "DataNucleus";
     String defaultDbNameForAuthentication = "admin";
     MongoClient mongo;
+    public static CodecRegistry codecRegistry;
 
     /**
      * Constructor.
@@ -89,18 +103,38 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
     public ConnectionFactoryImpl(StoreManager storeMgr, String resourceType)
     {
         super(storeMgr, resourceType);
-
-        String url = storeMgr.getConnectionURL();
+        // "mongodb:[server]/database"
+        String url = storeMgr.getConnectionURL();                                
         if (url == null)
         {
             throw new NucleusException("You haven't specified persistence property '" + PropertyNames.PROPERTY_CONNECTION_URL + "' (or alias)");
         }
+        
 
-        try
+
+MongoClientURI mongoClientURI = new MongoClientURI(url);
+        ConnectionString connectionString = new ConnectionString(mongoClientURI.getURI());
+        //ConnectionString connectionString = new ConnectionString(url);
+                CodecRegistry pojoCodecRegistry = CodecRegistries.fromProviders(PojoCodecProvider.builder().register(Point.class).automatic(true).build(),new ValueCodecProvider(), new BsonValueCodecProvider(), new DBObjectCodecProvider(), new GeoJsonCodecProvider());
+                codecRegistry = CodecRegistries.fromRegistries(MongoClientSettings.getDefaultCodecRegistry(),
+                                             pojoCodecRegistry);            
+                MongoClientSettings clientSettings = MongoClientSettings.builder()
+                                                        .applyConnectionString(connectionString)
+                                                        .codecRegistry(codecRegistry)                        
+                                                        .build();
+        if(url.contains("mongodb+srv")){            
+            //mongo = new MongoClient(uri);
+            mongo = new MongoClient(clientSettings);
+            dbName=mongoClientURI.getDatabase();
+        }else{
+        String remains = url.substring(7).trim();
+        if (remains.indexOf(':') == 0)
         {
-            MongoClientURI mongoClientURI = new MongoClientURI(url);
-
-            // Set options
+            remains = remains.substring(1);
+        }        
+        try
+        {            
+            // Set options            
             MongoClientOptions mongoClientOptionsFromURI = mongoClientURI.getOptions();
             if (mongoClientOptionsFromURI == null)
             {
@@ -140,8 +174,9 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
             }
 
             if (credential == null)
-            {
-                mongo = new MongoClient(mongoClientURI);
+            {                                               
+                //mongo = new MongoClient(mongoClientURI);
+                mongo = new MongoClient(clientSettings);
             }
             else
             {
@@ -149,24 +184,29 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
                 for(String host:mongoClientURI.getHosts())
                 {
                     addressList.add(new ServerAddress(host));
-                }
-                mongo = new MongoClient(addressList,credential,mongoClientURI.getOptions());
+                }                
+                mongo = new MongoClient(addressList,credential,mongoClientURI.getOptions());                
             }
 
             if (NucleusLogger.CONNECTION.isDebugEnabled())
             {
                 NucleusLogger.CONNECTION.debug("Created MongoClient object on resource " + getResourceName());
             }
-        }
+        }               
         catch (IllegalArgumentException e)
         {
             throw new NucleusException(e.getMessage());
         }
+        }
     }
 
+    @SuppressWarnings("deprecation")
     private MongoClientOptions getMongodbOptions(StoreManager storeManager)
     {
-        MongoClientOptions.Builder mongoOptionsBuilder = MongoClientOptions.builder();
+        MongoClientOptions.Builder mongoOptionsBuilder = MongoClientOptions.builder(); 
+        mongoOptionsBuilder.retryWrites(true);
+        mongoOptionsBuilder.writeConcern(WriteConcern.MAJORITY);
+        mongoOptionsBuilder.readPreference(ReadPreference.primaryPreferred());        
         if (storeManager.hasProperty(MONGODB_CONNECTIONS_PER_HOST))
         {
             mongoOptionsBuilder.connectionsPerHost(storeManager.getIntProperty(MONGODB_CONNECTIONS_PER_HOST));
@@ -229,6 +269,12 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
         {
             mongoOptionsBuilder.sslInvalidHostNameAllowed(storeManager.getBooleanProperty(MONGODB_SSL_INVALID_HOSTNAME_ALLOWED));
         }
+
+        /*if (storeManager.hasProperty(MONGODB_THREAD_BLOCK_FOR_MULTIPLIER))
+        {
+            // TODO Deprecated
+            mongoOptionsBuilder.threadsAllowedToBlockForConnectionMultiplier(storeManager.getIntProperty(MONGODB_THREAD_BLOCK_FOR_MULTIPLIER));
+        }*/
 
         if (storeManager.hasProperty(MONGODB_REPLICA_SET_NAME))
         {
@@ -298,7 +344,9 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
             if (conn == null)
             {
                 // Create new connection
-                conn = mongo.getDB(dbName); // TODO Change this to getDatabase(...)
+                //conn = mongo.getDB(dbName); TODO Change this to getDatabase(...)
+                conn = mongo.getDatabase(dbName);                
+                
                 if (NucleusLogger.CONNECTION.isDebugEnabled())
                 {
                     NucleusLogger.CONNECTION.debug(Localiser.msg("009011", this.toString(), getResourceName()));
@@ -353,7 +401,7 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
                 {
                     obtainNewConnection();
                 }
-                xaRes = new EmulatedXAResource(this, (DB) conn);
+                xaRes = new EmulatedXAResource(this, (MongoDatabase)conn);
             }
             return xaRes;
         }
@@ -364,13 +412,13 @@ public class ConnectionFactoryImpl extends AbstractConnectionFactory
      */
     static class EmulatedXAResource extends AbstractEmulatedXAResource
     {
-        DB db;
+        MongoDatabase db;
 
-        EmulatedXAResource(ManagedConnectionImpl mconn, DB db)
+        EmulatedXAResource(ManagedConnectionImpl mconn, MongoDatabase db)
         {
             super(mconn);
             this.db = db;
-        }
+        }                
 
         public void commit(Xid xid, boolean onePhase) throws XAException
         {

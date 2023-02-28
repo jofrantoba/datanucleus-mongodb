@@ -17,6 +17,7 @@ Contributors :
 ***********************************************************************/
 package org.datanucleus.store.mongodb.fieldmanager;
 
+import com.mongodb.BasicDBObject;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,6 +28,7 @@ import java.util.Optional;
 
 import com.mongodb.DBObject;
 import com.mongodb.DBRef;
+import org.bson.Document;
 
 import org.datanucleus.ClassLoaderResolver;
 import org.datanucleus.ExecutionContext;
@@ -455,7 +457,14 @@ public class FetchFieldManager extends AbstractFetchFieldManager
                     Iterator collIter = collValue.iterator();
                     while (collIter.hasNext())
                     {
-                        DBObject elementObj = (DBObject)collIter.next();
+                        //DBObject elementObj = (DBObject)collIter.next();
+                        DBObject elementObj;
+                        Object item= collIter.next();
+                        if(item instanceof Document){
+                            elementObj = new BasicDBObject((Document)item);                                                    
+                        }else{
+                            elementObj= (DBObject)collIter.next();
+                        }
                         AbstractClassMetaData elementCmd = elemCmd;
                         if (elementCmd.hasDiscriminatorStrategy())
                         {

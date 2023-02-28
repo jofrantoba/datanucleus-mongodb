@@ -47,8 +47,15 @@ import org.datanucleus.util.NucleusLogger;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
-import com.mongodb.DBCollection;
 import com.mongodb.DBObject;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.MongoIterable;
+import com.mongodb.client.model.CreateCollectionOptions;
+import com.mongodb.client.model.IndexOptions;
+import java.util.Collection;
+import java.util.HashSet;
+import org.bson.conversions.Bson;
 
 /**
  * Handler for schema operations with MongoDB datastores.
@@ -66,14 +73,14 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
     @Override
     public void createSchemaForClasses(Set<String> classNames, Properties props, Object connection)
     {
-        DB db = (DB)connection;
+        MongoDatabase db = (MongoDatabase)connection;
         ManagedConnection mconn = null;
         try
         {
             if (db == null)
             {
                 mconn = storeMgr.getConnectionManager().getConnection(-1);
-                db = (DB)mconn.getConnection();
+                db = (MongoDatabase)mconn.getConnection();
             }
 
             ClassLoaderResolver clr = storeMgr.getNucleusContext().getClassLoaderResolver(null);
@@ -95,7 +102,7 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
         }
     }
 
-    protected void createSchemaForClass(AbstractClassMetaData cmd, DB db)
+    protected void createSchemaForClass(AbstractClassMetaData cmd, MongoDatabase db)
     {
         if (cmd.isEmbeddedOnly() || cmd.getPersistenceModifier() != ClassPersistenceModifier.PERSISTENCE_CAPABLE)
         {
@@ -120,20 +127,22 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
         }
 
         String collectionName = table.getName();
-        DBCollection collection = null;
-        if (isAutoCreateTables() && !db.collectionExists(collectionName))
+        MongoCollection collection = null;
+        if (isAutoCreateTables() && db.getCollection(collectionName)==null)
         {
             // Create collection (if not existing)
             if (cmd.hasExtension(MongoDBStoreManager.CAPPED_SIZE_EXTENSION_NAME))
             {
-                Set<String> collNames = db.getCollectionNames();
+                //Set<String> collNames = db.getCollectionNames();                                               
+               Set<String> collNames=new HashSet((Collection) db.listCollectionNames().iterator());
+               
                 if (!collNames.contains(collectionName))
                 {
                     // Collection specified as "capped" with a size and doesn't exist so create it
-                    DBObject options = new BasicDBObject();
-                    options.put("capped", "true");
+                    CreateCollectionOptions options = new CreateCollectionOptions();                    
+                    options.capped(true);                          
                     Long size = Long.valueOf(cmd.getValueForExtension(MongoDBStoreManager.CAPPED_SIZE_EXTENSION_NAME));
-                    options.put("size", size);
+                    options.sizeInBytes(size);
                     if (NucleusLogger.DATASTORE_SCHEMA.isDebugEnabled())
                     {
                         NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClass", cmd.getFullClassName(), collectionName));
@@ -142,22 +151,24 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                 }
                 else
                 {
-                    DBObject options = new BasicDBObject();
+                    CreateCollectionOptions options = new CreateCollectionOptions();
                     if (NucleusLogger.DATASTORE_SCHEMA.isDebugEnabled())
                     {
                         NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClass", cmd.getFullClassName(), collectionName));
                     }
-                    collection = db.createCollection(collectionName, options);
+                    db.createCollection(collectionName, options);
+                    collection = db.getCollection(collectionName);
                 }
             }
             else
             {
-                DBObject options = new BasicDBObject();
+                CreateCollectionOptions options = new CreateCollectionOptions();
                 if (NucleusLogger.DATASTORE_SCHEMA.isDebugEnabled())
                 {
                     NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClass", cmd.getFullClassName(), collectionName));
                 }
-                collection = db.createCollection(collectionName, options);
+                db.createCollection(collectionName, options);
+                collection = db.getCollection(collectionName);
             }
         }
 
@@ -165,7 +176,7 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
         if (autoCreateConstraints)
         {
             // Create indexes
-            if (collection == null && !db.getCollectionNames().contains(collectionName))
+            if (collection == null && db.getCollection(collectionName)==null)
             {
                 NucleusLogger.DATASTORE_SCHEMA.warn("Cannot create constraints for " + cmd.getFullClassName() +
                     " since collection of name " + collectionName + " doesn't exist (enable autoCreateTables?)");
@@ -194,7 +205,11 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                         {
                             NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClassIndex", idxName, collectionName, idxObj));
                         }
-                        collection.createIndex(idxObj, idxName, idxmd.isUnique());
+                        IndexOptions opt=new IndexOptions();                        
+                        opt.unique(true);
+                        opt.name(idxName);
+                        collection.createIndex((Bson)idxObj, opt);
+                        //collection.createIndex(idxObj, idxName, idxmd.isUnique());                        
                     }
                 }
 
@@ -210,7 +225,10 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                         {
                             NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClassIndex", uniName, collectionName, uniObj));
                         }
-                        collection.createIndex(uniObj, uniName, true);
+                        IndexOptions opt=new IndexOptions();
+                        opt.unique(true);
+                        opt.name(uniName);
+                        collection.createIndex((Bson)uniObj, opt);
                     }
                 }
                 theCmd = theCmd.getSuperAbstractClassMetaData();
@@ -250,7 +268,10 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                         {
                             NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClassIndex", pkName, collectionName, query));
                         }
-                        collection.createIndex(query, pkName, true);
+                        IndexOptions opt=new IndexOptions();
+                        opt.unique(true);
+                        opt.name(pkName);
+                        collection.createIndex((Bson)query,opt);
                     }
                 }
             }
@@ -269,7 +290,10 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                     {
                         NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClassIndex", pkName, collectionName, query));
                     }
-                    collection.createIndex(query, pkName, true);
+                    IndexOptions opt=new IndexOptions();
+                    opt.unique(true);
+                    opt.name(pkName);
+                    collection.createIndex((Bson)query,opt);
                 }
             }
 
@@ -293,7 +317,10 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                     {
                         idxName = namingFactory.getConstraintName(cmd.getName(), mapping.getMemberMetaData(), unimd);
                     }
-                    collection.createIndex(query, idxName, true);
+                    IndexOptions opt=new IndexOptions();
+                    opt.unique(true);
+                    opt.name(idxName);
+                    collection.createIndex((Bson)query, opt);
                 }
                 else
                 {
@@ -307,7 +334,10 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                         {
                             NucleusLogger.DATASTORE_SCHEMA.debug(Localiser.msg("MongoDB.Schema.CreateClassIndex", idxName, collectionName, query));
                         }
-                        collection.createIndex(query, idxName, idxmd.isUnique());
+                        IndexOptions opt=new IndexOptions();
+                        opt.unique(idxmd.isUnique());
+                        opt.name(idxName);
+                        collection.createIndex(query,opt);
                     }
                 }
             }
@@ -374,14 +404,14 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
     @Override
     public void deleteSchemaForClasses(Set<String> classNames, Properties props, Object connection)
     {
-        DB db = (DB)connection;
+        MongoDatabase db = (MongoDatabase)connection;
         ManagedConnection mconn = null;
         try
         {
             if (db == null)
             {
                 mconn = storeMgr.getConnectionManager().getConnection(-1);
-                db = (DB)mconn.getConnection();
+                db = (MongoDatabase)mconn.getConnection();
             }
 
             ClassLoaderResolver clr = storeMgr.getNucleusContext().getClassLoaderResolver(null);
@@ -400,7 +430,7 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                     {
                         table = new CompleteClassTable(storeMgr, cmd, null);
                     }
-                    DBCollection collection = db.getCollection(table.getName());
+                    MongoCollection collection = db.getCollection(table.getName());
                     collection.dropIndexes();
                     if (NucleusLogger.DATASTORE_SCHEMA.isDebugEnabled())
                     {
@@ -426,14 +456,14 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
     public void validateSchema(Set<String> classNames, Properties props, Object connection)
     {
         boolean success = true;
-        DB db = (DB)connection;
+        MongoDatabase db = (MongoDatabase)connection;
         ManagedConnection mconn = null;
         try
         {
             if (db == null)
             {
                 mconn = storeMgr.getConnectionManager().getConnection(-1);
-                db = (DB)mconn.getConnection();
+                db = (MongoDatabase)mconn.getConnection();
             }
 
             ClassLoaderResolver clr = storeMgr.getNucleusContext().getClassLoaderResolver(null);
@@ -455,7 +485,7 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                     }
 
                     String tableName = table.getName();
-                    if (!db.collectionExists(tableName))
+                    if (db.getCollection(tableName)==null)
                     {
                         success = false;
                         String msg = Localiser.msg("MongoDB.SchemaValidate.Class", cmd.getFullClassName(), tableName);
@@ -467,8 +497,8 @@ public class MongoDBSchemaHandler extends AbstractStoreSchemaHandler
                     String msg = "Table for class="+cmd.getFullClassName() + " with name="+tableName + " validated";
                     NucleusLogger.DATASTORE_SCHEMA.info(msg);
 
-                    DBCollection dbColl = db.getCollection(tableName);
-                    List<DBObject> indices = new ArrayList(dbColl.getIndexInfo());
+                    MongoCollection dbColl = db.getCollection(tableName);                    
+                    List<DBObject> indices = new ArrayList((Collection) dbColl.listIndexes().iterator());                    
 
                     List<IndexMetaData> idxmds = cmd.getIndexMetaData();
                     if (idxmds != null)

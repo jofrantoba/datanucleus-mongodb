@@ -50,7 +50,7 @@ import org.datanucleus.store.schema.SchemaAwareStoreManager;
 import org.datanucleus.store.schema.table.CompleteClassTable;
 import org.datanucleus.util.Localiser;
 
-import com.mongodb.DB;
+import com.mongodb.client.MongoDatabase;
 
 public class MongoDBStoreManager extends AbstractStoreManager implements SchemaAwareStoreManager
 {
@@ -266,7 +266,7 @@ public class MongoDBStoreManager extends AbstractStoreManager implements SchemaA
         }
 
         throw new NucleusUserException("This datastore provider doesn't support native strategy for field of type " + type.getName());
-    }
+    }        
 
     /*
      * (non-Javadoc)
@@ -284,7 +284,8 @@ public class MongoDBStoreManager extends AbstractStoreManager implements SchemaA
         ManagedConnection mconn = connectionMgr.getConnection(-1);
         try
         {
-            DB db = (DB) mconn.getConnection();
+            //DB db = (DB) mconn.getConnection();
+            MongoDatabase db = (MongoDatabase) mconn.getConnection();
             manageClasses(classNames, clr, db);
         }
         finally
@@ -293,7 +294,7 @@ public class MongoDBStoreManager extends AbstractStoreManager implements SchemaA
         }
     }
 
-    public void manageClasses(String[] classNames, ClassLoaderResolver clr, DB db)
+    public void manageClasses(String[] classNames, ClassLoaderResolver clr, MongoDatabase db)
     {
         if (classNames == null || classNames.length == 0)
         {

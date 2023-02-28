@@ -19,6 +19,7 @@ package org.datanucleus.store.mongodb.query;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
+import com.mongodb.client.MongoDatabase;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -233,7 +234,8 @@ public class JPQLQuery extends AbstractJPQLQuery
         ManagedConnection mconn = getStoreManager().getConnectionManager().getConnection(ec);
         try
         {
-            DB db = (DB)mconn.getConnection();
+            //DB db = (DB)mconn.getConnection();
+            MongoDatabase db = (MongoDatabase)mconn.getConnection();
 
             long startTime = System.currentTimeMillis();
             if (NucleusLogger.QUERY.isDebugEnabled())

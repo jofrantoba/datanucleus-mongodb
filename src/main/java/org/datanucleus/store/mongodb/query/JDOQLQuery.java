@@ -45,6 +45,7 @@ import org.datanucleus.util.NucleusLogger;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DB;
+import com.mongodb.client.MongoDatabase;
 
 /**
  * Implementation of JDOQL for MongoDB datastores.
@@ -259,7 +260,8 @@ public class JDOQLQuery extends AbstractJDOQLQuery
         ManagedConnection mconn = getStoreManager().getConnectionManager().getConnection(ec);
         try
         {
-            DB db = (DB)mconn.getConnection();
+            //DB db = (DB)mconn.getConnection();
+            MongoDatabase db = (MongoDatabase)mconn.getConnection();
 
             long startTime = System.currentTimeMillis();
             if (NucleusLogger.QUERY.isDebugEnabled())

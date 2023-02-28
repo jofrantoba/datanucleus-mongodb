@@ -17,6 +17,7 @@ Contributors:
 **********************************************************************/
 package org.datanucleus.store.mongodb.query;
 
+import com.mongodb.BasicDBObject;
 import java.io.ObjectStreamException;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -41,6 +42,8 @@ import org.datanucleus.util.ConcurrentReferenceHashMap.ReferenceType;
 
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
+import com.mongodb.client.MongoCursor;
+import org.bson.Document;
 
 /**
  * QueryResult for MongoDB queries that tries to lazy load results from the provided DBCursor(s)
@@ -54,7 +57,7 @@ public class LazyLoadQueryResult extends AbstractQueryResult
     protected List<CandidateClassResult> candidateResults = new ArrayList<CandidateClassResult>();
 
     /** Iterator for the DBCursor that is being processed (if any). */
-    protected Iterator<DBObject> currentCursorIterator = null;
+    protected MongoCursor currentCursorIterator = null;
 
     /** Map of object, keyed by the index (0, 1, etc). */
     protected Map<Integer, Object> itemsByIndex = null;
@@ -102,9 +105,9 @@ public class LazyLoadQueryResult extends AbstractQueryResult
     private static class CandidateClassResult
     {
         AbstractClassMetaData cmd;
-        DBCursor cursor;
+        MongoCursor cursor;
         int[] fpMembers;
-        public CandidateClassResult(AbstractClassMetaData cmd, DBCursor curs, int[] fpMemberPositions)
+        public CandidateClassResult(AbstractClassMetaData cmd, MongoCursor curs, int[] fpMemberPositions)
         {
             this.cmd = cmd;
             this.cursor = curs;
@@ -112,7 +115,7 @@ public class LazyLoadQueryResult extends AbstractQueryResult
         }
     }
 
-    public void addCandidateResult(AbstractClassMetaData cmd, DBCursor cursor, int[] fpMembers)
+    public void addCandidateResult(AbstractClassMetaData cmd, MongoCursor cursor, int[] fpMembers)
     {
         candidateResults.add(new CandidateClassResult(cmd, cursor, fpMembers));
     }
@@ -172,12 +175,14 @@ public class LazyLoadQueryResult extends AbstractQueryResult
                     CandidateClassResult result = candidateResults.get(0);
                     while (currentCursorIterator.hasNext())
                     {
-                        DBObject dbObject = currentCursorIterator.next();
+                        //DBObject dbObject = currentCursorIterator.next();
+                        DBObject dbObject = new BasicDBObject((Document)currentCursorIterator.next());                                                    
                         Object pojo = MongoDBUtils.getPojoForDBObjectForCandidate(dbObject, ec, result.cmd, result.fpMembers, query.getIgnoreCache());
                         itemsByIndex.put(itemsByIndex.size(), pojo);
                     }
                     result.cursor.close();
                     candidateResults.remove(result);
+                    currentCursorIterator.close();
                     currentCursorIterator = null;
                 }
 
@@ -186,15 +191,18 @@ public class LazyLoadQueryResult extends AbstractQueryResult
                 while (candidateResultsIter.hasNext())
                 {
                     CandidateClassResult result = candidateResultsIter.next();
-                    currentCursorIterator = result.cursor.iterator();
+                    //currentCursorIterator = result.cursor.iterator();
+                    MongoCursor currentCursorIterator = result.cursor;
                     while (currentCursorIterator.hasNext())
                     {
-                        DBObject dbObject = currentCursorIterator.next();
+                        //DBObject dbObject = currentCursorIterator.next();
+                        DBObject dbObject = new BasicDBObject((Document)currentCursorIterator.next());                                                    
                         Object pojo = MongoDBUtils.getPojoForDBObjectForCandidate(dbObject, ec, result.cmd, result.fpMembers, query.getIgnoreCache());
                         itemsByIndex.put(itemsByIndex.size(), pojo);
                     }
                     result.cursor.close();
                     candidateResultsIter.remove();
+                    currentCursorIterator.close();
                     currentCursorIterator = null;
                 }
             }
@@ -298,7 +306,8 @@ public class LazyLoadQueryResult extends AbstractQueryResult
         if (currentCursorIterator != null)
         {
             // Continue the current cursor iterator
-            DBObject dbObject = currentCursorIterator.next();
+            //DBObject dbObject = currentCursorIterator.next();
+            DBObject dbObject = new BasicDBObject((Document)currentCursorIterator.next());                                                    
             pojo = MongoDBUtils.getPojoForDBObjectForCandidate(dbObject, ec, result.cmd,
                 result.fpMembers, query.getIgnoreCache());
             itemsByIndex.put(itemsByIndex.size(), pojo);
@@ -317,10 +326,12 @@ public class LazyLoadQueryResult extends AbstractQueryResult
             boolean noNextResult = true;
             while (noNextResult)
             {
-                currentCursorIterator = result.cursor.iterator();
+                //currentCursorIterator = result.cursor.iterator();
+                 currentCursorIterator = result.cursor;
                 if (currentCursorIterator.hasNext())
                 {
-                    DBObject dbObject = currentCursorIterator.next();
+                    //DBObject dbObject = currentCursorIterator.next();
+                    DBObject dbObject = new BasicDBObject((Document)currentCursorIterator.next());                                                    
                     pojo = MongoDBUtils.getPojoForDBObjectForCandidate(dbObject, ec, result.cmd,
                         result.fpMembers, query.getIgnoreCache());
                     itemsByIndex.put(itemsByIndex.size(), pojo);

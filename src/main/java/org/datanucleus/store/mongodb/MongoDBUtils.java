@@ -19,12 +19,13 @@ Contributors:
 package org.datanucleus.store.mongodb;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.DB;
-import com.mongodb.DBCollection;
-import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 import com.mongodb.MongoException;
 import com.mongodb.ReadPreference;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
 import org.bson.types.ObjectId;
 import org.datanucleus.ClassLoaderResolver;
 import org.datanucleus.ExecutionContext;
@@ -83,6 +84,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.bson.Document;
 
 /**
  * Utilities for MongoDB.
@@ -91,7 +93,7 @@ public class MongoDBUtils
 {
     private MongoDBUtils() {}
 
-    public static List<Long> performMongoCount(DB db, BasicDBObject filterObject, Class candidateClass, boolean subclasses, ExecutionContext ec)
+    public static List<Long> performMongoCount(MongoDatabase db, BasicDBObject filterObject, Class candidateClass, boolean subclasses, ExecutionContext ec)
     throws MongoException
     {
         StoreManager storeMgr = ec.getStoreManager();
@@ -100,7 +102,8 @@ public class MongoDBUtils
         {
             Table table = storeMgr.getStoreDataForClass(cmd.getFullClassName()).getTable();
             String collectionName = table.getName();
-            count += db.getCollection(collectionName).count(filterObject);
+            //count += db.getCollection(collectionName).count(filterObject);
+            count += db.getCollection(collectionName).countDocuments(filterObject);
         }
 
         List<Long> results = new LinkedList<>();
@@ -199,7 +202,8 @@ public class MongoDBUtils
         ManagedConnection mconn = storeMgr.getConnectionManager().getConnection(ec);
         try
         {
-            DB db = (DB)mconn.getConnection();
+            //DB db = (DB)mconn.getConnection();
+            MongoDatabase db = (MongoDatabase)mconn.getConnection();
 
             StoreData sd = storeMgr.getStoreDataForClass(rootCmd.getFullClassName());
             if (sd == null)
@@ -258,7 +262,8 @@ public class MongoDBUtils
                 String tableName = dbCollEntry.getKey();
                 Set<String> classNames = dbCollEntry.getValue();
                 Table table = tableByTableName.get(tableName);
-                DBCollection dbColl = db.getCollection(tableName);
+                //DBCollection dbColl = db.getCollection(tableName);
+                MongoCollection dbColl = db.getCollection(tableName);
                 BasicDBObject query = new BasicDBObject();
                 if (rootCmd.getIdentityType() == IdentityType.DATASTORE)
                 {
@@ -299,7 +304,8 @@ public class MongoDBUtils
                 {
                     NucleusLogger.DATASTORE_NATIVE.debug("Retrieving object for " + query + " from DBCollection with name " + tableName);
                 }
-                DBObject foundObj = dbColl.findOne(query);
+                //DBObject foundObj = dbColl.findOne(query);
+                DBObject foundObj = (DBObject)dbColl.find(query);
                 if (ec.getStatistics() != null)
                 {
                     // Add to statistics
@@ -340,7 +346,7 @@ public class MongoDBUtils
      * @param originalValue Whether to use the original value of fields (when using nondurable id and doing update).
      * @return The object (or null if not found)
      */
-    public static DBObject getObjectForStateManager(DBCollection dbCollection, DNStateManager sm, boolean checkVersion, boolean originalValue)
+    public static DBObject getObjectForStateManager(MongoCollection dbCollection, DNStateManager sm, boolean checkVersion, boolean originalValue)
     {
         // Build query object to use as template for the find
         BasicDBObject query = new BasicDBObject();
@@ -535,7 +541,14 @@ public class MongoDBUtils
         {
             NucleusLogger.DATASTORE_NATIVE.debug("Retrieving object for " + query);
         }
-        DBObject dbObj = dbCollection.findOne(query);
+        //DBObject dbObj = dbCollection.findOne(query);
+        MongoCursor cursor = (MongoCursor)dbCollection.find(query).cursor();
+        BasicDBObject dbObj=null;
+        if(cursor.hasNext()){
+            Document doc=(Document)cursor.next();     
+            dbObj = new BasicDBObject(doc);                    
+        }        
+        cursor.close(); 
         if (ec.getStatistics() != null)
         {
             // Add to statistics
@@ -544,7 +557,7 @@ public class MongoDBUtils
         return dbObj;
     }
 
-    public static List getObjectsOfCandidateType(Query q, DB db, BasicDBObject filterObject, Map<String, Object> options)
+    public static List getObjectsOfCandidateType(Query q, MongoDatabase db, BasicDBObject filterObject, Map<String, Object> options)
     {
         return getObjectsOfCandidateType(q, db, filterObject, null, options, null, null);
     }
@@ -560,7 +573,7 @@ public class MongoDBUtils
      * @param limit Max number of records to return
      * @return List of all candidate objects (implements QueryResult)
      */
-    public static List getObjectsOfCandidateType(Query q, DB db, BasicDBObject filterObject, BasicDBObject orderingObject, Map<String, Object> options, Integer skip, Integer limit)
+    public static List getObjectsOfCandidateType(Query q, MongoDatabase db, BasicDBObject filterObject, BasicDBObject orderingObject, Map<String, Object> options, Integer skip, Integer limit)
     {
         LazyLoadQueryResult qr = new LazyLoadQueryResult(q);
 
@@ -701,11 +714,13 @@ public class MongoDBUtils
                 query.put(softDeleteCol.getName(), Boolean.FALSE);
             }
 
-            DBCollection dbColl = db.getCollection(collectionName);
+            //DBCollection dbColl = db.getCollection(collectionName);
+             MongoCollection dbColl = db.getCollection(collectionName); 
             Object val = (options != null ? options.get("slave-ok") : Boolean.FALSE);
             if (val == Boolean.TRUE)
-            {
-                dbColl.setReadPreference(ReadPreference.secondaryPreferred());
+            {                
+                //dbColl.setReadPreference(ReadPreference.secondaryPreferred());
+                dbColl.withReadPreference(ReadPreference.secondaryPreferred());                
             }
 
             if (NucleusLogger.DATASTORE_NATIVE.isDebugEnabled())
@@ -713,7 +728,8 @@ public class MongoDBUtils
                 NucleusLogger.DATASTORE_NATIVE.debug("Performing find() using query on collection " + collectionName +
                     " for fields=" + fieldsSelection + " with filter=" + query + " and ordering=" + orderingObject);
             }
-            DBCursor curs = dbColl.find(query, fieldsSelection);
+            //DBCursor curs = dbColl.find(query, fieldsSelection);
+            FindIterable curs = dbColl.find(query).projection(fieldsSelection);            
             if (ec.getStatistics() != null)
             {
                 // Add to statistics
@@ -741,10 +757,10 @@ public class MongoDBUtils
                 }
             }
 
-            if (curs.hasNext())
+            if (curs.cursor().hasNext())
             {
                 // Contains result(s) so add it to our QueryResult
-                qr.addCandidateResult(rootCmd, curs, fpMembers);
+                qr.addCandidateResult(rootCmd, curs.cursor(), fpMembers);
             }
         }
 
